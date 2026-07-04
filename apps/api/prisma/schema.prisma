@@ -1,0 +1,12 @@
+// Fluxo — Prisma schema.
+// Domain models (multi-tenant workspaces, accounts, transactions, budgets…)
+// are introduced in the database module together with the first migration.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
