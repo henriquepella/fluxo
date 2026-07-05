@@ -10,6 +10,15 @@ interface MappedError {
   details?: string[];
 }
 
+/** Domain exceptions carry no HTTP knowledge; the translation lives here. */
+const DOMAIN_CODE_TO_STATUS: Record<string, number> = {
+  INVALID_CREDENTIALS: HttpStatus.UNAUTHORIZED,
+  RESOURCE_NOT_FOUND: HttpStatus.NOT_FOUND,
+  EMAIL_ALREADY_IN_USE: HttpStatus.CONFLICT,
+  RESOURCE_CONFLICT: HttpStatus.CONFLICT,
+  BUSINESS_RULE_VIOLATION: HttpStatus.UNPROCESSABLE_ENTITY,
+};
+
 @Catch()
 export class GlobalExceptionFilter implements ExceptionFilter {
   constructor(private readonly logger: PinoLogger) {
@@ -42,7 +51,7 @@ export class GlobalExceptionFilter implements ExceptionFilter {
   private mapException(exception: unknown): MappedError {
     if (exception instanceof DomainException) {
       return {
-        status: HttpStatus.UNPROCESSABLE_ENTITY,
+        status: DOMAIN_CODE_TO_STATUS[exception.code] ?? HttpStatus.UNPROCESSABLE_ENTITY,
         code: exception.code,
         message: exception.message,
       };

@@ -6,6 +6,7 @@ const validEnv: Record<string, unknown> = {
   DATABASE_URL: 'postgresql://user:pass@localhost:5432/db',
   REDIS_URL: 'redis://localhost:6379',
   CORS_ORIGIN: 'http://localhost:3000',
+  JWT_SECRET: 'test-only-jwt-secret',
 };
 
 describe('validateEnv', () => {
@@ -42,6 +43,17 @@ describe('validateEnv', () => {
     delete env.REDIS_URL;
 
     expect(() => validateEnv(env)).toThrow(/REDIS_URL/);
+  });
+
+  it('rejects when JWT_SECRET is missing', () => {
+    const env = { ...validEnv };
+    delete env.JWT_SECRET;
+
+    expect(() => validateEnv(env)).toThrow(/JWT_SECRET/);
+  });
+
+  it('rejects a too-short JWT_SECRET', () => {
+    expect(() => validateEnv({ ...validEnv, JWT_SECRET: 'short' })).toThrow(/JWT_SECRET/);
   });
 
   it('rejects a non-numeric PORT', () => {

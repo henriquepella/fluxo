@@ -27,6 +27,14 @@ export class EnvironmentVariables {
   @IsString()
   @MinLength(1)
   CORS_ORIGIN: string = 'http://localhost:3000';
+
+  @IsString()
+  @MinLength(8)
+  JWT_SECRET!: string;
+
+  @IsString()
+  @MinLength(1)
+  JWT_EXPIRES_IN: string = '7d';
 }
 
 export function validateEnv(config: Record<string, unknown>): EnvironmentVariables {
