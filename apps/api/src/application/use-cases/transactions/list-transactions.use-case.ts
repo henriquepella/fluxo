@@ -12,6 +12,7 @@ export interface ListTransactionsInput {
   /** `YYYY-MM`; defaults to the current month. */
   month?: string;
   accountId?: string;
+  categoryId?: string;
   type?: TransactionType;
 }
 
@@ -27,6 +28,7 @@ export class ListTransactionsUseCase {
       from,
       to,
       accountId: input.accountId,
+      categoryId: input.categoryId,
       type: input.type,
     });
   }

@@ -7,6 +7,7 @@ import { PrismaModule } from './infrastructure/database/prisma.module';
 import { AppLoggerModule } from './infrastructure/logger/logger.module';
 import { AccountsModule } from './presentation/accounts/accounts.module';
 import { AuthModule } from './presentation/auth/auth.module';
+import { BudgetsModule } from './presentation/budgets/budgets.module';
 import { JwtAuthGuard } from './presentation/auth/guards/jwt-auth.guard';
 import { CategoriesModule } from './presentation/categories/categories.module';
 import { DashboardModule } from './presentation/dashboard/dashboard.module';
@@ -30,6 +31,7 @@ import { TransactionsModule } from './presentation/transactions/transactions.mod
     HealthModule,
     AuthModule,
     AccountsModule,
+    BudgetsModule,
     CategoriesModule,
     TransactionsModule,
     DashboardModule,

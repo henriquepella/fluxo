@@ -48,6 +48,7 @@ export class PrismaTransactionRepository implements TransactionRepository {
         userId,
         date: dateFilter(filters.from, filters.to),
         accountId: filters.accountId,
+        categoryId: filters.categoryId,
         type: filters.type,
       },
       include: RELATION_INCLUDE,

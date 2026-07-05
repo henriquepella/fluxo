@@ -1,52 +1,42 @@
 'use client';
 
-import { useEffect, useState, type FormEvent } from 'react';
+import { useSearchParams } from 'next/navigation';
+import { Suspense, useEffect, useState } from 'react';
 import { MonthSwitcher } from '../../../components/month-switcher';
+import { useToast } from '../../../components/toast';
+import { TransactionFormModal } from '../../../components/transaction-form-modal';
 import {
   Button,
+  ConfirmDialog,
   EmptyState,
   ErrorNote,
-  Field,
   Input,
-  Modal,
   Select,
-  Spinner,
+  Skeleton,
 } from '../../../components/ui';
 import { api } from '../../../lib/api';
-import {
-  centsToReaisInput,
-  currentMonth,
-  formatBRL,
-  formatDate,
-  reaisToCents,
-  todayInputValue,
-} from '../../../lib/format';
+import { currentMonth, formatBRL, formatDate } from '../../../lib/format';
 import type { Account, Category, Transaction, TransactionType } from '../../../lib/types';
 
-interface FormState {
-  id: string | null;
-  type: TransactionType;
-  description: string;
-  amount: string;
-  date: string;
-  accountId: string;
-  categoryId: string;
+export default function TransactionsPage() {
+  return (
+    <Suspense fallback={<Skeleton className="h-64" />}>
+      <TransactionsPageInner />
+    </Suspense>
+  );
 }
 
-const emptyForm = (accountId = ''): FormState => ({
-  id: null,
-  type: 'expense',
-  description: '',
-  amount: '',
-  date: todayInputValue(),
-  accountId,
-  categoryId: '',
-});
+function TransactionsPageInner() {
+  const params = useSearchParams();
 
-export default function TransactionsPage() {
-  const [month, setMonth] = useState(currentMonth);
-  const [typeFilter, setTypeFilter] = useState<'' | TransactionType>('');
-  const [accountFilter, setAccountFilter] = useState('');
+  const [month, setMonth] = useState(() => params.get('month') ?? currentMonth());
+  const [typeFilter, setTypeFilter] = useState<'' | TransactionType>(() => {
+    const type = params.get('type');
+    return type === 'income' || type === 'expense' ? type : '';
+  });
+  const [accountFilter, setAccountFilter] = useState(() => params.get('accountId') ?? '');
+  const [categoryFilter, setCategoryFilter] = useState(() => params.get('categoryId') ?? '');
+  const [search, setSearch] = useState('');
 
   const [transactions, setTransactions] = useState<Transaction[] | null>(null);
   const [accounts, setAccounts] = useState<Account[]>([]);
@@ -54,9 +44,10 @@ export default function TransactionsPage() {
 
   const [pageError, setPageError] = useState<string | null>(null);
   const [modalOpen, setModalOpen] = useState(false);
-  const [form, setForm] = useState<FormState>(emptyForm());
-  const [formError, setFormError] = useState<string | null>(null);
-  const [saving, setSaving] = useState(false);
+  const [editing, setEditing] = useState<Transaction | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<Transaction | null>(null);
+  const [deleting, setDeleting] = useState(false);
+  const toast = useToast();
 
   const [reloadKey, setReloadKey] = useState(0);
   const reload = () => setReloadKey((key) => key + 1);
@@ -65,11 +56,12 @@ export default function TransactionsPage() {
     let cancelled = false;
     async function fetchAll() {
       try {
-        const params = new URLSearchParams({ month });
-        if (typeFilter) params.set('type', typeFilter);
-        if (accountFilter) params.set('accountId', accountFilter);
+        const query = new URLSearchParams({ month });
+        if (typeFilter) query.set('type', typeFilter);
+        if (accountFilter) query.set('accountId', accountFilter);
+        if (categoryFilter) query.set('categoryId', categoryFilter);
         const [txs, accs, cats] = await Promise.all([
-          api<Transaction[]>(`/transactions?${params}`),
+          api<Transaction[]>(`/transactions?${query}`),
           api<Account[]>('/accounts'),
           api<Category[]>('/categories'),
         ]);
@@ -88,66 +80,85 @@ export default function TransactionsPage() {
     return () => {
       cancelled = true;
     };
-  }, [month, typeFilter, accountFilter, reloadKey]);
+  }, [month, typeFilter, accountFilter, categoryFilter, reloadKey]);
 
-  function openCreate() {
-    setForm(emptyForm(accounts[0]?.id ?? ''));
-    setFormError(null);
-    setModalOpen(true);
+  function onSaved(savedDate: string) {
+    // If the entry belongs to another month, jump the view there so it
+    // never "disappears" behind the month filter.
+    const savedMonth = savedDate.slice(0, 7);
+    if (savedMonth !== month) {
+      setMonth(savedMonth);
+      toast.success(`Mostrando ${savedMonth.split('-').reverse().join('/')}, o mês do lançamento.`);
+    } else {
+      reload();
+    }
   }
 
-  function openEdit(tx: Transaction) {
-    setForm({
-      id: tx.id,
-      type: tx.type,
-      description: tx.description,
-      amount: centsToReaisInput(tx.amountCents),
-      date: tx.date.slice(0, 10),
-      accountId: tx.accountId,
-      categoryId: tx.categoryId ?? '',
-    });
-    setFormError(null);
-    setModalOpen(true);
-  }
-
-  async function onSubmit(event: FormEvent) {
-    event.preventDefault();
-    setFormError(null);
-    setSaving(true);
-    const payload = {
-      type: form.type,
-      description: form.description,
-      amountCents: reaisToCents(form.amount),
-      date: form.date,
-      accountId: form.accountId,
-      categoryId: form.categoryId || null,
-    };
+  async function duplicate(tx: Transaction) {
     try {
-      if (form.id) {
-        await api(`/transactions/${form.id}`, { method: 'PATCH', body: payload });
-      } else {
-        await api('/transactions', { method: 'POST', body: payload });
-      }
-      setModalOpen(false);
+      await api('/transactions', {
+        method: 'POST',
+        body: {
+          type: tx.type,
+          description: tx.description,
+          amountCents: tx.amountCents,
+          date: new Date().toISOString().slice(0, 10),
+          accountId: tx.accountId,
+          categoryId: tx.categoryId,
+        },
+      });
+      toast.success('Lançamento duplicado para hoje!');
       reload();
     } catch (err) {
-      setFormError(err instanceof Error ? err.message : 'Erro ao salvar.');
+      toast.error(err instanceof Error ? err.message : 'Erro ao duplicar.');
+    }
+  }
+
+  async function confirmDelete() {
+    if (!deleteTarget) return;
+    setDeleting(true);
+    try {
+      await api(`/transactions/${deleteTarget.id}`, { method: 'DELETE' });
+      toast.success('Lançamento excluído.');
+      setDeleteTarget(null);
+      reload();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Erro ao excluir.');
     } finally {
-      setSaving(false);
+      setDeleting(false);
     }
   }
 
-  async function onDelete(tx: Transaction) {
-    if (!window.confirm(`Excluir "${tx.description}"?`)) return;
-    try {
-      await api(`/transactions/${tx.id}`, { method: 'DELETE' });
-      reload();
-    } catch (err) {
-      setPageError(err instanceof Error ? err.message : 'Erro ao excluir.');
-    }
+  function exportCsv(rows: Transaction[]) {
+    const header = 'Data;Descrição;Categoria;Conta;Tipo;Valor (R$)';
+    const lines = rows.map((tx) => {
+      const value = ((tx.type === 'income' ? 1 : -1) * tx.amountCents) / 100;
+      return [
+        formatDate(tx.date),
+        `"${tx.description.replaceAll('"', '""')}"`,
+        `"${tx.category?.name ?? ''}"`,
+        `"${tx.account.name}"`,
+        tx.type === 'income' ? 'Receita' : 'Despesa',
+        value.toFixed(2).replace('.', ','),
+      ].join(';');
+    });
+    // BOM so Excel opens the UTF-8 accents correctly.
+    const blob = new Blob(['﻿' + [header, ...lines].join('\r\n')], {
+      type: 'text/csv;charset=utf-8',
+    });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `fluxo-lancamentos-${month}.csv`;
+    link.click();
+    URL.revokeObjectURL(url);
   }
 
-  const formCategories = categories.filter((c) => c.kind === form.type);
+  const visibleTransactions = (transactions ?? []).filter((tx) =>
+    tx.description.toLowerCase().includes(search.trim().toLowerCase()),
+  );
+
+  const hasActiveFilters = typeFilter || accountFilter || categoryFilter || search;
 
   return (
     <div className="flex flex-col gap-6">
@@ -155,11 +166,26 @@ export default function TransactionsPage() {
         <h1 className="text-2xl font-semibold tracking-tight">Lançamentos</h1>
         <div className="flex flex-wrap items-center gap-2">
           <MonthSwitcher month={month} onChange={setMonth} />
-          <Button onClick={openCreate}>+ Novo lançamento</Button>
+          <Button
+            onClick={() => {
+              setEditing(null);
+              setModalOpen(true);
+            }}
+          >
+            + Novo lançamento
+          </Button>
         </div>
       </div>
 
-      <div className="flex flex-wrap gap-2">
+      <div className="flex flex-wrap items-center gap-2">
+        <Input
+          type="search"
+          aria-label="Buscar por descrição"
+          placeholder="Buscar…"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          className="max-w-52"
+        />
         <Select
           aria-label="Filtrar por tipo"
           value={typeFilter}
@@ -169,6 +195,21 @@ export default function TransactionsPage() {
           <option value="">Todos os tipos</option>
           <option value="income">Receitas</option>
           <option value="expense">Despesas</option>
+        </Select>
+        <Select
+          aria-label="Filtrar por categoria"
+          value={categoryFilter}
+          onChange={(e) => setCategoryFilter(e.target.value)}
+          className="max-w-44"
+        >
+          <option value="">Todas as categorias</option>
+          {categories
+            .filter((c) => !typeFilter || c.kind === typeFilter)
+            .map((category) => (
+              <option key={category.id} value={category.id}>
+                {category.name}
+              </option>
+            ))}
         </Select>
         <Select
           aria-label="Filtrar por conta"
@@ -183,20 +224,67 @@ export default function TransactionsPage() {
             </option>
           ))}
         </Select>
+        {hasActiveFilters && (
+          <button
+            type="button"
+            onClick={() => {
+              setTypeFilter('');
+              setAccountFilter('');
+              setCategoryFilter('');
+              setSearch('');
+            }}
+            className="text-sm font-medium text-zinc-400 transition-colors hover:text-zinc-700 dark:hover:text-zinc-200"
+          >
+            Limpar filtros
+          </button>
+        )}
+        {visibleTransactions.length > 0 && (
+          <Button variant="secondary" onClick={() => exportCsv(visibleTransactions)}>
+            <svg
+              width="15"
+              height="15"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden
+            >
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3" />
+            </svg>
+            Exportar CSV
+          </Button>
+        )}
       </div>
 
       <ErrorNote message={pageError} />
-      {!transactions && !pageError && <Spinner />}
+      {!transactions && !pageError && (
+        <div className="flex flex-col gap-2">
+          <Skeleton className="h-11" />
+          {[0, 1, 2, 3, 4].map((i) => (
+            <Skeleton key={i} className="h-12" />
+          ))}
+        </div>
+      )}
 
       {transactions && transactions.length === 0 && (
         <EmptyState
-          title="Nenhum lançamento neste mês"
-          hint='Clique em "+ Novo lançamento" para registrar uma receita ou despesa.'
+          title="Nenhum lançamento encontrado"
+          hint={
+            hasActiveFilters
+              ? 'Ajuste os filtros ou clique em "Limpar filtros".'
+              : 'Clique em "+ Novo lançamento" para registrar uma receita ou despesa.'
+          }
         />
       )}
 
-      {transactions && transactions.length > 0 && (
-        <div className="overflow-x-auto rounded-xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900">
+      {transactions && transactions.length > 0 && visibleTransactions.length === 0 && (
+        <EmptyState title={`Nada encontrado para "${search}"`} hint="Tente outro termo de busca." />
+      )}
+
+      {visibleTransactions.length > 0 && (
+        <div className="animate-fade-up overflow-x-auto rounded-xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900">
           <table className="w-full min-w-[640px] text-sm">
             <thead>
               <tr className="border-b border-zinc-200 text-left text-xs uppercase tracking-wide text-zinc-400 dark:border-zinc-800 dark:text-zinc-500">
@@ -209,8 +297,11 @@ export default function TransactionsPage() {
               </tr>
             </thead>
             <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800">
-              {transactions.map((tx) => (
-                <tr key={tx.id} className="group">
+              {visibleTransactions.map((tx) => (
+                <tr
+                  key={tx.id}
+                  className="group transition-colors hover:bg-zinc-50 dark:hover:bg-zinc-800/40"
+                >
                   <td className="whitespace-nowrap px-4 py-3 text-zinc-500 dark:text-zinc-400">
                     {formatDate(tx.date)}
                   </td>
@@ -245,14 +336,25 @@ export default function TransactionsPage() {
                   <td className="whitespace-nowrap px-4 py-3 text-right">
                     <button
                       type="button"
-                      onClick={() => openEdit(tx)}
+                      onClick={() => {
+                        setEditing(tx);
+                        setModalOpen(true);
+                      }}
                       className="mr-3 text-xs font-medium text-zinc-400 hover:text-emerald-600 dark:hover:text-emerald-400"
                     >
                       Editar
                     </button>
                     <button
                       type="button"
-                      onClick={() => void onDelete(tx)}
+                      title="Criar uma cópia com a data de hoje"
+                      onClick={() => void duplicate(tx)}
+                      className="mr-3 text-xs font-medium text-zinc-400 hover:text-emerald-600 dark:hover:text-emerald-400"
+                    >
+                      Duplicar
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setDeleteTarget(tx)}
                       className="text-xs font-medium text-zinc-400 hover:text-red-600 dark:hover:text-red-400"
                     >
                       Excluir
@@ -265,101 +367,21 @@ export default function TransactionsPage() {
         </div>
       )}
 
-      <Modal
-        title={form.id ? 'Editar lançamento' : 'Novo lançamento'}
+      <TransactionFormModal
         open={modalOpen}
+        transaction={editing}
         onClose={() => setModalOpen(false)}
-      >
-        <form onSubmit={onSubmit} className="flex flex-col gap-4">
-          <ErrorNote message={formError} />
-          <div className="grid grid-cols-2 gap-1 rounded-lg bg-zinc-100 p-1 dark:bg-zinc-800">
-            {(['expense', 'income'] as const).map((type) => (
-              <button
-                key={type}
-                type="button"
-                onClick={() => setForm((f) => ({ ...f, type, categoryId: '' }))}
-                className={`rounded-md py-1.5 text-sm font-medium transition-colors ${
-                  form.type === type
-                    ? type === 'expense'
-                      ? 'bg-white text-red-600 shadow-sm dark:bg-zinc-900 dark:text-red-400'
-                      : 'bg-white text-emerald-600 shadow-sm dark:bg-zinc-900 dark:text-emerald-400'
-                    : 'text-zinc-500 dark:text-zinc-400'
-                }`}
-              >
-                {type === 'expense' ? 'Despesa' : 'Receita'}
-              </button>
-            ))}
-          </div>
-          <Field label="Descrição">
-            <Input
-              required
-              maxLength={200}
-              value={form.description}
-              onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))}
-              placeholder="Ex.: Supermercado"
-            />
-          </Field>
-          <div className="grid grid-cols-2 gap-3">
-            <Field label="Valor (R$)">
-              <Input
-                required
-                type="number"
-                min="0.01"
-                step="0.01"
-                inputMode="decimal"
-                value={form.amount}
-                onChange={(e) => setForm((f) => ({ ...f, amount: e.target.value }))}
-                placeholder="0,00"
-              />
-            </Field>
-            <Field label="Data">
-              <Input
-                required
-                type="date"
-                value={form.date}
-                onChange={(e) => setForm((f) => ({ ...f, date: e.target.value }))}
-              />
-            </Field>
-          </div>
-          <Field label="Conta">
-            <Select
-              required
-              value={form.accountId}
-              onChange={(e) => setForm((f) => ({ ...f, accountId: e.target.value }))}
-            >
-              <option value="" disabled>
-                Selecione…
-              </option>
-              {accounts.map((account) => (
-                <option key={account.id} value={account.id}>
-                  {account.name}
-                </option>
-              ))}
-            </Select>
-          </Field>
-          <Field label="Categoria">
-            <Select
-              value={form.categoryId}
-              onChange={(e) => setForm((f) => ({ ...f, categoryId: e.target.value }))}
-            >
-              <option value="">Sem categoria</option>
-              {formCategories.map((category) => (
-                <option key={category.id} value={category.id}>
-                  {category.name}
-                </option>
-              ))}
-            </Select>
-          </Field>
-          <div className="mt-2 flex justify-end gap-2">
-            <Button variant="secondary" onClick={() => setModalOpen(false)}>
-              Cancelar
-            </Button>
-            <Button type="submit" disabled={saving}>
-              {saving ? 'Salvando…' : 'Salvar'}
-            </Button>
-          </div>
-        </form>
-      </Modal>
+        onSaved={onSaved}
+      />
+
+      <ConfirmDialog
+        open={deleteTarget !== null}
+        title="Excluir lançamento"
+        message={`Excluir "${deleteTarget?.description ?? ''}"? Essa ação não pode ser desfeita.`}
+        busy={deleting}
+        onCancel={() => setDeleteTarget(null)}
+        onConfirm={() => void confirmDelete()}
+      />
     </div>
   );
 }

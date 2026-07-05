@@ -1,15 +1,17 @@
 'use client';
 
 import { useEffect, useState, type FormEvent } from 'react';
+import { useToast } from '../../../components/toast';
 import {
   Button,
+  ConfirmDialog,
   EmptyState,
   ErrorNote,
   Field,
   Input,
   Modal,
   Select,
-  Spinner,
+  Skeleton,
 } from '../../../components/ui';
 import { api } from '../../../lib/api';
 import { formatBRL } from '../../../lib/format';
@@ -29,6 +31,9 @@ export default function AccountsPage() {
   const [form, setForm] = useState<FormState>({ id: null, name: '', type: 'checking' });
   const [formError, setFormError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<Account | null>(null);
+  const [deleting, setDeleting] = useState(false);
+  const toast = useToast();
 
   const [reloadKey, setReloadKey] = useState(0);
   const reload = () => setReloadKey((key) => key + 1);
@@ -74,8 +79,10 @@ export default function AccountsPage() {
           method: 'PATCH',
           body: { name: form.name, type: form.type },
         });
+        toast.success('Conta atualizada!');
       } else {
         await api('/accounts', { method: 'POST', body: { name: form.name, type: form.type } });
+        toast.success('Conta criada!');
       }
       setModalOpen(false);
       reload();
@@ -86,19 +93,18 @@ export default function AccountsPage() {
     }
   }
 
-  async function onDelete(account: Account) {
-    if (
-      !window.confirm(
-        `Excluir a conta "${account.name}"? Todos os lançamentos dela também serão excluídos.`,
-      )
-    ) {
-      return;
-    }
+  async function confirmDelete() {
+    if (!deleteTarget) return;
+    setDeleting(true);
     try {
-      await api(`/accounts/${account.id}`, { method: 'DELETE' });
+      await api(`/accounts/${deleteTarget.id}`, { method: 'DELETE' });
+      toast.success('Conta excluída.');
+      setDeleteTarget(null);
       reload();
     } catch (err) {
-      setPageError(err instanceof Error ? err.message : 'Erro ao excluir.');
+      toast.error(err instanceof Error ? err.message : 'Erro ao excluir.');
+    } finally {
+      setDeleting(false);
     }
   }
 
@@ -110,7 +116,13 @@ export default function AccountsPage() {
       </div>
 
       <ErrorNote message={pageError} />
-      {!accounts && !pageError && <Spinner />}
+      {!accounts && !pageError && (
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          {[0, 1, 2].map((i) => (
+            <Skeleton key={i} className="h-36" />
+          ))}
+        </div>
+      )}
 
       {accounts && accounts.length === 0 && (
         <EmptyState title="Nenhuma conta" hint='Crie a primeira em "+ Nova conta".' />
@@ -118,10 +130,11 @@ export default function AccountsPage() {
 
       {accounts && accounts.length > 0 && (
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-          {accounts.map((account) => (
+          {accounts.map((account, index) => (
             <div
               key={account.id}
-              className="flex flex-col gap-3 rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900"
+              className="animate-fade-up flex flex-col gap-3 rounded-xl border border-zinc-200 bg-white p-5 transition-shadow hover:shadow-md dark:border-zinc-800 dark:bg-zinc-900"
+              style={{ animationDelay: `${index * 60}ms` }}
             >
               <div>
                 <p className="font-medium text-zinc-800 dark:text-zinc-100">{account.name}</p>
@@ -148,7 +161,7 @@ export default function AccountsPage() {
                 </button>
                 <button
                   type="button"
-                  onClick={() => void onDelete(account)}
+                  onClick={() => setDeleteTarget(account)}
                   className="text-zinc-400 hover:text-red-600 dark:hover:text-red-400"
                 >
                   Excluir
@@ -197,6 +210,15 @@ export default function AccountsPage() {
           </div>
         </form>
       </Modal>
+
+      <ConfirmDialog
+        open={deleteTarget !== null}
+        title="Excluir conta"
+        message={`Excluir a conta "${deleteTarget?.name ?? ''}"? Todos os lançamentos dela também serão excluídos.`}
+        busy={deleting}
+        onCancel={() => setDeleteTarget(null)}
+        onConfirm={() => void confirmDelete()}
+      />
     </div>
   );
 }

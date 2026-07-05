@@ -1,14 +1,16 @@
 'use client';
 
 import { useEffect, useState, type FormEvent } from 'react';
+import { useToast } from '../../../components/toast';
 import {
   Button,
+  ConfirmDialog,
   EmptyState,
   ErrorNote,
   Field,
   Input,
   Modal,
-  Spinner,
+  Skeleton,
 } from '../../../components/ui';
 import { api } from '../../../lib/api';
 import type { Category, CategoryKind } from '../../../lib/types';
@@ -52,7 +54,7 @@ function CategoryColumn({
 }) {
   const items = categories.filter((category) => category.kind === kind);
   return (
-    <section className="rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900">
+    <section className="animate-fade-up rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900">
       <div className="mb-4 flex items-center justify-between">
         <h2 className="text-sm font-semibold text-zinc-700 dark:text-zinc-200">{title}</h2>
         <button
@@ -117,6 +119,9 @@ export default function CategoriesPage() {
   });
   const [formError, setFormError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<Category | null>(null);
+  const [deleting, setDeleting] = useState(false);
+  const toast = useToast();
 
   const [reloadKey, setReloadKey] = useState(0);
   const reload = () => setReloadKey((key) => key + 1);
@@ -163,11 +168,13 @@ export default function CategoriesPage() {
           method: 'PATCH',
           body: { name: form.name, color: form.color },
         });
+        toast.success('Categoria atualizada!');
       } else {
         await api('/categories', {
           method: 'POST',
           body: { name: form.name, kind: form.kind, color: form.color },
         });
+        toast.success('Categoria criada!');
       }
       setModalOpen(false);
       reload();
@@ -178,19 +185,18 @@ export default function CategoriesPage() {
     }
   }
 
-  async function onDelete(category: Category) {
-    if (
-      !window.confirm(
-        `Excluir a categoria "${category.name}"? Os lançamentos dela ficarão sem categoria.`,
-      )
-    ) {
-      return;
-    }
+  async function confirmDelete() {
+    if (!deleteTarget) return;
+    setDeleting(true);
     try {
-      await api(`/categories/${category.id}`, { method: 'DELETE' });
+      await api(`/categories/${deleteTarget.id}`, { method: 'DELETE' });
+      toast.success('Categoria excluída.');
+      setDeleteTarget(null);
       reload();
     } catch (err) {
-      setPageError(err instanceof Error ? err.message : 'Erro ao excluir.');
+      toast.error(err instanceof Error ? err.message : 'Erro ao excluir.');
+    } finally {
+      setDeleting(false);
     }
   }
 
@@ -199,7 +205,12 @@ export default function CategoriesPage() {
       <h1 className="text-2xl font-semibold tracking-tight">Categorias</h1>
 
       <ErrorNote message={pageError} />
-      {!categories && !pageError && <Spinner />}
+      {!categories && !pageError && (
+        <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+          <Skeleton className="h-80" />
+          <Skeleton className="h-80" />
+        </div>
+      )}
 
       {categories && (
         <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
@@ -209,7 +220,7 @@ export default function CategoriesPage() {
             categories={categories}
             onCreate={openCreate}
             onEdit={openEdit}
-            onDelete={(category) => void onDelete(category)}
+            onDelete={setDeleteTarget}
           />
           <CategoryColumn
             kind="expense"
@@ -217,7 +228,7 @@ export default function CategoriesPage() {
             categories={categories}
             onCreate={openCreate}
             onEdit={openEdit}
-            onDelete={(category) => void onDelete(category)}
+            onDelete={setDeleteTarget}
           />
         </div>
       )}
@@ -270,6 +281,15 @@ export default function CategoriesPage() {
           </div>
         </form>
       </Modal>
+
+      <ConfirmDialog
+        open={deleteTarget !== null}
+        title="Excluir categoria"
+        message={`Excluir a categoria "${deleteTarget?.name ?? ''}"? Os lançamentos dela ficarão sem categoria.`}
+        busy={deleting}
+        onCancel={() => setDeleteTarget(null)}
+        onConfirm={() => void confirmDelete()}
+      />
     </div>
   );
 }
