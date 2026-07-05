@@ -8,6 +8,7 @@ export interface TransactionFilters {
   /** Exclusive upper bound. */
   to?: Date;
   accountId?: string;
+  categoryId?: string;
   type?: TransactionType;
 }
 

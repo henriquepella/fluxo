@@ -56,6 +56,22 @@ export interface DashboardSummary {
   recentTransactions: Transaction[];
 }
 
+export interface MonthlyTotals {
+  month: string;
+  incomeCents: number;
+  expenseCents: number;
+}
+
+export interface Budget {
+  id: string;
+  categoryId: string;
+  categoryName: string;
+  categoryColor: string;
+  amountCents: number;
+  spentCents: number;
+  percent: number;
+}
+
 export const ACCOUNT_TYPE_LABELS: Record<AccountType, string> = {
   checking: 'Conta corrente',
   savings: 'Poupança',

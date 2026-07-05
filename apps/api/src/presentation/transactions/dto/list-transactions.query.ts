@@ -16,6 +16,11 @@ export class ListTransactionsQuery {
   @IsString()
   accountId?: string;
 
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  categoryId?: string;
+
   @ApiPropertyOptional({ enum: TRANSACTION_TYPES })
   @IsOptional()
   @IsIn(TRANSACTION_TYPES)

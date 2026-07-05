@@ -21,6 +21,14 @@ export function shiftMonth(month: string, delta: number): string {
   return `${shifted.getUTCFullYear()}-${String(shifted.getUTCMonth() + 1).padStart(2, '0')}`;
 }
 
+/** "jul" — short month label for chart axes. */
+export function monthShortLabel(month: string): string {
+  const [year, monthNumber] = month.split('-').map(Number);
+  return new Intl.DateTimeFormat('pt-BR', { month: 'short', timeZone: 'UTC' })
+    .format(new Date(Date.UTC(year, monthNumber - 1, 1)))
+    .replace('.', '');
+}
+
 /** "julho de 2026" */
 export function monthLabel(month: string): string {
   const [year, monthNumber] = month.split('-').map(Number);
