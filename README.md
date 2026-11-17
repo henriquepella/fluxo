@@ -2,7 +2,7 @@
 
 # 💸 Fluxo
 
-**A modern personal finance SaaS — built to production standards.**
+**Personal finance app — a study project where I practice production-grade habits (tests, CI, clean architecture).**
 
 [![CI](https://github.com/henriquepella/fluxo/actions/workflows/ci.yml/badge.svg)](../../actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
